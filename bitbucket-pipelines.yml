@@ -1,0 +1,143 @@
+pipelines:
+  branches:
+    mig/qa:
+      - step:
+          name: Build and Push Docker Image to Azure Container Registry
+          size: 2x
+          image: python:3.11
+          services:
+            - docker
+          script:
+            - set -euxo pipefail
+            - echo "MONGO_URI=$QA_MONGO_URI" >> .env
+            - echo "DATABASE_NAME=forensic_report" >> .env
+            - echo "CASE_COLLECTION=case_add" >> .env
+            - echo "PROMPTS_COLLECTION=system_prompts" >> .env
+            - echo "MONGO_INITDB_ROOT_USERNAME=admin" >> .env
+            - echo "MONGO_INITDB_ROOT_PASSWORD=password" >> .env
+            - echo "AZURE_CONNECTION_STRING=$QA_AZURE_CONNECTION_STRING" >> .env
+            - echo "AZURE_CONTAINER_NAME=original-data" >> .env
+            - echo "ACCOUNT_NAME=storageforensic" >> .env
+            - echo "ACCOUNT_KEY=$QA_ACCOUNT_KEY" >> .env
+            - echo "GOOGLE_API_KEY=$GOOGLE_API_KEY" >> .env
+            - echo "GEMINI_MODEL=gemini-2.5-flash-preview-04-17" >> .env
+            - echo "GEMINI_IMAGE_MODEL=gemini-2.5-flash-preview-04-17" >> .env
+
+
+            - cat .env  
+            - docker build -t qa-forensic-be-gemini .
+            - echo "$QA_CONTAINER_REGISTRY_PASSWORD" | docker login forensichub.azurecr.io -u forensichub --password-stdin
+            - docker tag qa-forensic-be-gemini forensichub.azurecr.io/qa-forensic-be-gemini
+            - docker push forensichub.azurecr.io/qa-forensic-be-gemini
+
+
+
+
+
+      - step:
+          name: Restart container
+          size: 2x
+          image: node:18
+          services:
+            - docker
+          script:
+            - |
+              set -e
+              # Install Azure CLI
+              curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+              
+              # Login to Azure
+              az login --service-principal -u $QA_AZURE_APP_ID -p $QA_AZURE_PASSWORD --tenant $QA_AZURE_TENANT_ID
+              az account set --subscription $QA_AZURE_SUBSCRIPTION_ID
+              
+              # Get the current active revision
+              CURRENT_REVISION=$(az containerapp revision list --name $GEMINI_BE_AZURE_CONTAINER_APP --resource-group $QA_AZURE_RESOURCE_GROUP --query "[?properties.active].name" -o tsv)
+              
+              # Check if there is an active revision
+              if [ -n "$CURRENT_REVISION" ]; then
+                  echo "Deactivating current active revision: $CURRENT_REVISION"
+                  az containerapp revision deactivate --name $GEMINI_BE_AZURE_CONTAINER_APP --resource-group $QA_AZURE_RESOURCE_GROUP --revision $CURRENT_REVISION
+              else
+                  echo "No active revision found. Skipping deactivation."
+              fi
+
+              # Use the Bitbucket build number to generate a unique scale rule name
+              SCALE_RULE_NAME="http-scaler-${BITBUCKET_BUILD_NUMBER}"
+              
+              # Update container app with a new revision using the same image and new scale settings
+              az containerapp update \
+                  --name $GEMINI_BE_AZURE_CONTAINER_APP \
+                  --resource-group $QA_AZURE_RESOURCE_GROUP \
+                  --scale-rule-name $SCALE_RULE_NAME  \
+                  --scale-rule-type http \
+                  --scale-rule-metadata concurrentRequests=500            
+
+    opcode:
+      - step:
+          name: Build and Push Docker Image to Azure Container Registry
+          size: 2x
+          image: python:3.11
+          services:
+            - docker
+          script:
+            - set -euxo pipefail
+            - echo "MONGO_URI=$OPCODE_MONGO_URI" >> .env
+            - echo "DATABASE_NAME=forensic_report" >> .env
+            - echo "CASE_COLLECTION=case_add" >> .env
+            - echo "PROMPTS_COLLECTION=system_prompts" >> .env
+            - echo "MONGO_INITDB_ROOT_USERNAME=admin" >> .env
+            - echo "MONGO_INITDB_ROOT_PASSWORD=password" >> .env
+            - echo "AZURE_CONNECTION_STRING=$OPCODE_AZURE_CONNECTION_STRING" >> .env
+            - echo "AZURE_CONTAINER_NAME=original-data" >> .env
+            - echo "ACCOUNT_NAME=storagedocx" >> .env
+            - echo "ACCOUNT_KEY=$OPCODE_ACCOUNT_KEY" >> .env
+            - echo "GOOGLE_API_KEY=$GOOGLE_API_KEY" >> .env
+            - echo "GEMINI_MODEL=gemini-2.5-pro-preview-05-06" >> .env
+            - echo "GEMINI_IMAGE_MODEL=gemini-2.5-pro-preview-05-06" >> .env
+            - cat .env  
+            - docker build -t qa-forensic-be-gemini .
+            - echo "$QA_CONTAINER_REGISTRY" | docker login askgaloreqacr.azurecr.io -u askgaloreqacr --password-stdin
+            - docker tag qa-forensic-be-gemini askgaloreqacr.azurecr.io/qa-forensic-be-gemini
+            - docker push askgaloreqacr.azurecr.io/qa-forensic-be-gemini
+
+
+
+
+
+      - step:
+          name: Restart container
+          size: 2x
+          image: node:18
+          services:
+            - docker
+          script:
+            - |
+              set -e
+              # Install Azure CLI
+              curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+              
+              # Login to Azure
+              az login --service-principal -u $AZURE_APP_ID -p $AZURE_PASSWORD --tenant $AZURE_TENANT_ID
+              az account set --subscription $AZURE_SUBSCRIPTION_ID
+              
+              # Get the current active revision
+              CURRENT_REVISION=$(az containerapp revision list --name $AZURE_CONTAINER_APP --resource-group $AZURE_RESOURCE_GROUP --query "[?properties.active].name" -o tsv)
+              
+              # Check if there is an active revision
+              if [ -n "$CURRENT_REVISION" ]; then
+                  echo "Deactivating current active revision: $CURRENT_REVISION"
+                  az containerapp revision deactivate --name $AZURE_CONTAINER_APP --resource-group $AZURE_RESOURCE_GROUP --revision $CURRENT_REVISION
+              else
+                  echo "No active revision found. Skipping deactivation."
+              fi
+
+              # Use the Bitbucket build number to generate a unique scale rule name
+              SCALE_RULE_NAME="http-scaler-${BITBUCKET_BUILD_NUMBER}"
+              
+              # Update container app with a new revision using the same image and new scale settings
+              az containerapp update \
+                  --name $AZURE_CONTAINER_APP \
+                  --resource-group $AZURE_RESOURCE_GROUP \
+                  --scale-rule-name $SCALE_RULE_NAME  \
+                  --scale-rule-type http \
+                  --scale-rule-metadata concurrentRequests=500    
