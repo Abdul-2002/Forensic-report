@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 # Import MongoDB connection
 from utils.Mongodbcnnection import MongoDBConnection
-from utils.CRUD_utils import format_object_id
+from src.db.models.base import format_object_id
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

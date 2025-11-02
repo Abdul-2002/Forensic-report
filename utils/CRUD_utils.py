@@ -12,6 +12,31 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 load_dotenv()
 
+# Import format_object_id from the proper location to avoid duplication
+try:
+    from src.db.models.base import format_object_id
+except ImportError:
+    # Fallback for older code that might not have this import path
+    from bson import ObjectId
+    def format_object_id(obj):
+        """
+        Recursively formats MongoDB ObjectId to string in dictionaries and lists.
+        Fallback implementation if src.db.models.base is not available.
+        """
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if isinstance(v, ObjectId):
+                    obj[k] = str(v)
+                elif isinstance(v, (dict, list)):
+                    obj[k] = format_object_id(v)
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                if isinstance(v, ObjectId):
+                    obj[i] = str(v)
+                elif isinstance(v, (dict, list)):
+                    obj[i] = format_object_id(v)
+        return obj
+
 class CRUDUtils:
     """
     Utility class to perform CRUD operations on MongoDB collections.
@@ -132,30 +157,3 @@ class ReadWrite:
             import traceback
             logger.error(traceback.format_exc())
             return None
-
-
-from bson import ObjectId
-
-def format_object_id(obj):
-    """
-    Recursively formats MongoDB ObjectId to string in dictionaries and lists.
-
-    Args:
-        obj: The object to format (dict, list, or other)
-
-    Returns:
-        The formatted object with ObjectId converted to strings
-    """
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if isinstance(v, ObjectId):
-                obj[k] = str(v)
-            elif isinstance(v, (dict, list)):
-                obj[k] = format_object_id(v)
-    elif isinstance(obj, list):
-        for i, v in enumerate(obj):
-            if isinstance(v, ObjectId):
-                obj[i] = str(v)
-            elif isinstance(v, (dict, list)):
-                obj[i] = format_object_id(v)
-    return obj
