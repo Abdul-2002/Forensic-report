@@ -193,15 +193,15 @@ async def image_query_compat(data: dict):
 
     case_type = data.get("caseType", "case_type_1")
 
-    # Process image using GeminiHandler
+    # Process image using InferenceService
     try:
-        from src.controller.gemini_case_handler import GeminiHandler
+        from src.inference.service import InferenceService
 
-        # Create GeminiHandler instance
-        handler = GeminiHandler(case_id=case_id, case_type=case_type)
+        # Create InferenceService instance
+        inference_service = InferenceService(case_id=case_id, case_type=case_type)
 
         # Process the image
-        desc = handler.Image_processing(image_b64)
+        desc = inference_service.process_image(image_b64)
         return {"Image_description": desc}
     except Exception as e:
         logger.error(f"Error processing image: {str(e)}")

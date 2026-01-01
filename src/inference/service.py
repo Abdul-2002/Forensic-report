@@ -3,6 +3,7 @@ Inference service for the application.
 """
 import base64
 import glob
+import json
 import os
 import shutil
 import tempfile
@@ -49,7 +50,7 @@ class InferenceService:
 
     def load_system_prompts(self) -> Dict[str, str]:
         """
-        Load system prompts from the database only.
+        Load system prompts from the database, falling back to file if needed.
 
         Returns:
             A dictionary of system prompts.
@@ -71,15 +72,16 @@ class InferenceService:
                 logger.info(f"Successfully retrieved a test document with keys: {list(test_doc.keys())}")
             else:
                 logger.warning("Could not retrieve a test document from the collection")
-                return {}
+                # Fallback to file
+                return self.load_system_prompts_from_file()
 
             # Get all prompts
             prompts = list(prompts_collection.find())
             logger.info(f"Retrieved {len(prompts)} documents from system_prompts collection")
 
             if not prompts:
-                logger.warning("No system prompts found in MongoDB.")
-                return {}
+                logger.warning("No system prompts found in MongoDB. Using file fallback.")
+                return self.load_system_prompts_from_file()
 
             # Format as a dictionary with section as key and prompt text as value
             result = {}
@@ -155,13 +157,97 @@ class InferenceService:
 
             logger.info(f"Loaded {len(result)} system prompts from MongoDB")
             logger.info(f"Available prompt keys: {list(result.keys())}")
+            
+            if not result:
+                return self.load_system_prompts_from_file()
+                
             return result
 
         except Exception as e:
             logger.error(f"Error loading system prompts from MongoDB: {e}")
-            return {}
+            return self.load_system_prompts_from_file()
 
+    def load_system_prompts_from_file(self) -> Dict[str, str]:
+        """
+        Fallback method to load system prompts from a JSON file.
+        Returns a dictionary mapping sections to their prompts.
+        """
+        SYSTEM_PROMPTS_FILE = "src/controller/system_prompts.json"
 
+        if not os.path.exists(SYSTEM_PROMPTS_FILE):
+            logger.warning(f"System prompts file '{SYSTEM_PROMPTS_FILE}' not found. Using default prompts.")
+            return self.get_default_prompts()
+
+        try:
+            logger.info(f"Loading system prompts from file: {SYSTEM_PROMPTS_FILE}")
+            with open(SYSTEM_PROMPTS_FILE, "r", encoding='utf-8') as f:
+                file_content = json.load(f)
+
+            # Convert the JSON structure to our format
+            result = {}
+
+            # Process each case type
+            for case_type, sections in file_content.items():
+                logger.info(f"Processing case type: {case_type}")
+
+                # Process each section
+                for section_name, section_content in sections.items():
+                    # Use the section name as the key
+                    section_key = section_name
+
+                    # Add the section content to the result
+                    result[section_key] = section_content
+                    logger.info(f"Added prompt for section: {section_key}")
+
+                    # If this case type matches the current case type, add a case-specific key
+                    if case_type == self.case_type:
+                        case_specific_key = f"{section_key}_{self.case_type}"
+                        result[case_specific_key] = section_content
+                        logger.info(f"Added case-specific prompt for: {case_specific_key}")
+
+            logger.info(f"Loaded {len(result)} prompts from file")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error loading system prompts from '{SYSTEM_PROMPTS_FILE}': {e}")
+            return self.get_default_prompts()
+
+    def get_default_prompts(self) -> Dict[str, str]:
+        """
+        Get default prompts when no prompts are found in MongoDB or file.
+        """
+        logger.info("Using default prompts")
+        default_prompts = {
+            "Background_Information": "Analyze the provided documents and extract key background information for the case.",
+            "Site_Inspection": "Analyze the provided documents and extract information about the site inspection.",
+            "Discussion": "Analyze the provided documents and provide a discussion of the findings.",
+            "Summary_of_Opinions": "Analyze the provided documents and summarize the key opinions.",
+            "Conclusion": "Analyze the provided documents and provide a conclusion.",
+            "Exhibits": "Analyze the provided documents and list any exhibits."
+        }
+        
+        # Add keys without underscores
+        for key, value in list(default_prompts.items()):
+            new_key = key.replace("_", " ")
+            default_prompts[new_key] = value
+            
+        return default_prompts
+
+    def process_image(self, image_b64: str) -> str:
+        """
+        Takes a base64 encoded image and uses Google's generative AI to generate a concise descriptive caption.
+        """
+        try:
+            # Use the model loader to get the image model
+            # Note: GeminiModel.predict_with_image handles the decoding and prediction
+            model = model_loader.get_model("gemini", "gemini-2.5-flash-preview-04-17") 
+
+            prompt = "Act as an expert in Forensic Engineering with decades of experience in analyzing complex incidents, conducting site inspections, and generating detailed engineering reports.\n\nDo not include any introductory or explanatory text about your role or what you are doing. Begin directly with the description of the image, Do not invent information."
+            
+            return model.predict_with_image(image_b64, prompt)
+        except Exception as e:
+            logger.error(f"Error processing image: {e}")
+            return f"Error: Could not process image. {str(e)}"
 
     def get_case_documents(self) -> List[str]:
         """
@@ -358,7 +444,8 @@ class InferenceService:
         section: str,
         batch_size: int = 3,
         base_retry_delay: int = 5,
-        max_retries: int = 3
+        max_retries: int = 3,
+        model_name: str = "gemini-2.5-flash-preview-04-17"
     ) -> str:
         """
         Creates a unified analysis by processing documents in batches
@@ -369,6 +456,7 @@ class InferenceService:
             batch_size: The maximum number of documents per batch.
             base_retry_delay: The base delay in seconds for retries.
             max_retries: The maximum number of retries.
+            model_name: The name of the model to use.
 
         Returns:
             The unified analysis text.
@@ -383,7 +471,7 @@ class InferenceService:
 
             for i, batch in enumerate(batches):
                 logger.info(f"Processing batch {i + 1} of {len(batches)} for section '{section}' with case_type '{self.case_type}'")
-                response = await self.query_with_batch(batch, section, base_retry_delay, max_retries)
+                response = await self.query_with_batch(batch, section, base_retry_delay, max_retries, model_name)
 
                 if response.startswith("Error:"):
                     logger.error(f"Batch {i + 1} failed: {response}")
@@ -400,7 +488,7 @@ class InferenceService:
                 combined_text += f"--- ANALYSIS FROM BATCH {idx + 1} ---\n{result}\n--- END OF BATCH {idx + 1} ---\n\n"
 
             # Get Gemini model
-            model = model_loader.get_model("gemini", "gemini-2.5-flash-preview-04-17")
+            model = model_loader.get_model("gemini", model_name)
 
             failure_warning = ""
             if processing_failed:
@@ -468,7 +556,8 @@ class InferenceService:
         batch: List[Dict],
         section: str,
         base_retry_delay: int,
-        max_retries: int
+        max_retries: int,
+        model_name: str = "gemini-2.5-flash-preview-04-17"
     ) -> str:
         """
         Processes a single document batch with a system prompt for the specified section.
@@ -478,6 +567,7 @@ class InferenceService:
             section: The section to analyze.
             base_retry_delay: The base delay in seconds for retries.
             max_retries: The maximum number of retries.
+            model_name: The name of the model to use.
 
         Returns:
             The analysis text.
@@ -582,7 +672,7 @@ class InferenceService:
                     contents.pop(i)
 
         # Get Gemini model
-        model = model_loader.get_model("gemini", "gemini-2.5-flash-preview-04-17")
+        model = model_loader.get_model("gemini", model_name)
 
         try:
             response = model.predict(contents, max_retries=max_retries, base_retry_delay=base_retry_delay)

@@ -12,7 +12,6 @@ from src.core.logging_config import get_logger
 from src.db.repositories.case_repository import CaseRepository
 from src.db.repositories.prediction_repository import PredictionRepository
 from src.inference.service import InferenceService
-from src.controller.gemini_case_handler import GeminiHandler
 
 logger = get_logger(__name__)
 
@@ -84,30 +83,28 @@ async def query_case(
         # For all other sections, use Gemini
         logger.info(f"Initiating Gemini query for case {request.case_id}, section '{request.section}'")
 
+        # Determine model to use
+        model_name = request.model if request.model else "gemini-2.5-flash-preview-04-17"
+
         # Special handling for 14_findings_and_background section
         if request.section == "14_findings_and_background":
-            logger.info(f"Using GeminiHandler for 14_findings_and_background section")
-
-            # Create GeminiHandler instance
-            handler = GeminiHandler(case_id=request.case_id, case_type=request.case_type or "case_type_1")
-
-            # Set model if specified
-            if request.model:
-                handler.set_model(request.model)
+            logger.info(f"Using InferenceService for 14_findings_and_background section")
 
             # Get findings and background
-            out14 = handler.create_unified_analysis(
+            out14 = await inference_service.create_unified_analysis(
                 section="1.4 Findings",
                 batch_size=3,
                 base_retry_delay=5,
-                max_retries=3
+                max_retries=3,
+                model_name=model_name
             )
 
-            outBackground = handler.create_unified_analysis(
+            outBackground = await inference_service.create_unified_analysis(
                 section="Background Information",
                 batch_size=3,
                 base_retry_delay=5,
-                max_retries=3
+                max_retries=3,
+                model_name=model_name
             )
 
             response_text = f"=== 1.4 FINDINGS ===\n{out14}\n\n=== BACKGROUND INFORMATION ===\n{outBackground}"
@@ -117,7 +114,8 @@ async def query_case(
                 section=request.section,
                 batch_size=3,
                 base_retry_delay=5,
-                max_retries=3
+                max_retries=3,
+                model_name=model_name
             )
 
         # Handle Gemini response/errors
