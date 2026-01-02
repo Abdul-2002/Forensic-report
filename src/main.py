@@ -122,33 +122,6 @@ app = socketio.ASGIApp(sio, app)
 
 # TODO: Update to use lifespan when upgrading FastAPI
 # The current version doesn't fully support the lifespan feature
-# @app.lifespan
-# async def lifespan(app: FastAPI):
-#     """
-#     Lifespan context manager for startup and shutdown events.
-#     """
-#     # Startup event
-#     logger.info(f"Starting {PROJECT_NAME} {VERSION}")
-#
-#     # Create upload directories
-#     from src.core.config import UPLOAD_DIR, REPORTS_DIR, IMAGES_DIR, EXHIBITS_DIR
-#     os.makedirs(UPLOAD_DIR, exist_ok=True)
-#     os.makedirs(REPORTS_DIR, exist_ok=True)
-#     os.makedirs(IMAGES_DIR, exist_ok=True)
-#     os.makedirs(EXHIBITS_DIR, exist_ok=True)
-#
-#     logger.info("Application startup complete")
-#
-#     yield  # This is where the application runs
-#
-#     # Shutdown event
-#     logger.info(f"Shutting down {PROJECT_NAME} {VERSION}")
-#
-#     # Unload all models
-#     from src.inference.loader import model_loader
-#     model_loader.unload_all_models()
-#
-#     logger.info("Application shutdown complete")
 
 if __name__ == "__main__":
     uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=True)
